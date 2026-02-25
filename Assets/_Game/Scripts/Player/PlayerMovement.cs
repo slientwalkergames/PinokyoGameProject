@@ -8,50 +8,79 @@ namespace Mechanics.Movement
     [RequireComponent(typeof(CharacterController))]
     public class PlayerMovement : MonoBehaviour
     {
-        [Header("Ayarlar")]
+        [Header("Hareket Ayarları")]
         [SerializeField] private float _moveSpeed = 5f;
+        [SerializeField] private float _rotationSmoothTime = 0.1f; // Dönüş Yumuşatma Süresi
         [SerializeField] private float _gravity = -9.81f;
 
         [Header("Referanslar")]
-        // InputManager'ı Editörden Sürükleyip Bırakmak İçin
         [SerializeField] private InputManager _inputManager;
         private CharacterController _controller;
-        private Vector3 _velocity; // Yerçekimi Hızı İçin
-        private bool _isGround; // Yerdemiyiz
+        private Transform _mainCameraTransform; // Kameranın Yönünü Almak İçin
+        private Vector3 _velocity;
+        private float _targetRotation = 0f;
+        private float _rotationVelocity;
+        [Header("Animasyon")]
+        [SerializeField] private Animator _animator; // Modelin Üzerindeki Animator
 
         void Awake()
         {
             _controller = GetComponent<CharacterController>();
+            // Ana Kameranın Transform Referansını Alıyoruz
+            if(Camera.main != null)
+            {
+                _mainCameraTransform = Camera.main.transform;
+            }
+            if(_animator == null)
+            {
+                _animator = GetComponentInChildren<Animator>();
+            }
+            if(_animator == null)
+            {
+                Debug.LogError($"{gameObject.name} üzerinde bir Animator bulunamadı! Lütfen modelin üzerinde Animator olduğundan ve script'e atandığından emin ol.");
+            }
         }
         void Update()
         {
-            HandleGravity(); // Yerçekimi Kontrölü
-            Move(); // Hareket İşlemi
+            HandleGravity();
+            Move();
+            UpdateAnimation();
         }
-        public void Move()
+        private void Move()
         {
-            // InputManager'dan veriyi al (x ve y)
             Vector2 input = _inputManager.MoveInput;
-            // 2D girdiyi 3D dünyaya uyarla (Y ekseni yukarıdır, Z ekseni ileridir)
-            // Şimdilik kamera açısını hesaba katmıyoruz, dünya koordinatlarına göre hareket edecek.
-            Vector3 moveDirection = new Vector3(input.x , 0f , input.y);
-            // Karakteri Hareket Ettir
-            // Time.deltatime : Bilgisayar Hızından Bağımsız Akıcı Hareket Sağlar
-            _controller.Move(moveDirection * _moveSpeed * Time.deltaTime);
+            // Eğer Girdi Yoksa İşlem Yapma (Dönüşü Korumak İçin)
+            if(input == Vector2.zero) return;
+            // 1.Kameranın Açısına Göre Hareket Yönünü Hesapla
+            // Input Açısını Al Ve Kameranın O Anki Y Rotasyonuyla Topla
+            float targetAngle = Mathf.Atan2(input.x , input.y) * Mathf.Rad2Deg + _mainCameraTransform.eulerAngles.y;
+            // 2.Karakterin O Yöne Yumuşakça Dönmesini Sağla
+            float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y , targetAngle , ref _rotationVelocity , _rotationSmoothTime);
+            transform.rotation = Quaternion.Euler(0f , angle , 0f);
+            // 3 Hesaplanan Açıya Göre Hareket Yönünü Vectör3'e Çevir
+            Vector3 moveDirection = Quaternion.Euler(0f , targetAngle , 0f) * Vector3.forward;
+            // 4.Karakteri Hareket Ettir
+            _controller.Move(moveDirection.normalized * _moveSpeed * Time.deltaTime);
         }
         private void HandleGravity()
         {
-            // Karakt Yerde Mi Kontrölü (CharacterController'ın kendi özelliği)
-            _isGround = _controller.isGrounded;
-            if(_isGround && _velocity.y < 0)
+            // Karakter yerde mi?
+            if (_controller.isGrounded && _velocity.y < 0)
             {
-                // Yerdeysek düşme hızını sıfırla (hafif eksi veriyoruz ki yere tam bassın)
-                _velocity.y = -2f;
+                // Yere değdiğinde küçük bir kuvvetle aşağı itmeye devam et ki havada asılı kalmasın
+                _velocity.y = -2f; 
             }
-            // Yerçekimi uygula
+            // Yerçekimi her karede eklenir
             _velocity.y += _gravity * Time.deltaTime;
-            // Yerçekimi Hareketini Uygula
+            // Karakteri aşağı doğru hareket ettir
             _controller.Move(_velocity * Time.deltaTime);
+        }
+        private void UpdateAnimation()
+        {
+            if (_animator == null) return;
+            float currentSpeed = _inputManager.MoveInput.magnitude;
+            // 0.1f değeri geçiş yumuşaklığıdır
+            _animator.SetFloat("Speed", currentSpeed, 0.1f, Time.deltaTime);
         }
     }
 }
